@@ -1,96 +1,48 @@
-import {createSlice, createAsyncThunk} from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
 
-const getMockUsers = () => JSON.parse(localStorage.getItem("mockUsers") || "[]");
-const saveMockUsers = (users) => localStorage.setItem("mockUsers", JSON.stringify(users));
+const API_URL = 'http://localhost:8080/auth'; // backend URL
 
-const MOCK_USER = {
-    id: 1,
-    name: "John Doe",
-    email: "johndoe@example.com",
-    password: "Password@123",
-    role: "admin",
-};
+export const loginUser = createAsyncThunk(
+    'auth/loginUser',
+    async (credentials: { email: string; password: string }, { rejectWithValue }) => {
+        try {
+            const response = await axios.post(`${API_URL}/login`, credentials);
+            const token = response.data;
 
-const MOCK_REGULAR_USER = {
-    id: 2,
-    name: "Jane Smith",
-    email: "janesmith@example.com",
-    password: "User@123",
-    role: "user",
-};
+            const payload = JSON.parse(atob(token.split('.')[1])); // Decode JWT
+            const user = {
+                email: payload.sub,
+                role: payload.role,
+            };
 
-if (!localStorage.getItem("mockUsers")) {
-    saveMockUsers([MOCK_USER, MOCK_REGULAR_USER]);
-}
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', JSON.stringify(user));
+            localStorage.setItem('isAuthenticated', 'true');
 
-const fakeApiCall = (data, success = true, delay = 1000) =>
-    new Promise((resolve, reject) => {
-        setTimeout(() => {
-            success ? resolve(data) : reject("Error occurred");
-        }, delay);
-    });
-
-export const loginUser = createAsyncThunk('auth/loginUser', async (credentials, {rejectWithValue}) => {
-    try {
-        let users = getMockUsers();
-
-        const user = users.find(u => u.email === credentials.email && u.password === credentials.password);
-
-        if (!user) {
-            return rejectWithValue("Invalid credentials");
+            return user;
+        } catch (err: any) {
+            return rejectWithValue(err.response?.data || 'Login failed');
         }
-
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('user', JSON.stringify(user));
-
-        return user;
-    } catch (err) {
-        return rejectWithValue(err);
     }
-});
+);
 
-export const registerUser = createAsyncThunk('auth/registerUser', async (newUser, {rejectWithValue}) => {
-    try {
-        let users = getMockUsers();
-
-        if (users.find(user => user.email === newUser.email)) {
-            return rejectWithValue("User already exists!");
+export const registerUser = createAsyncThunk(
+    'auth/registerUser',
+    async (credentials: { email: string; password: string }, { rejectWithValue }) => {
+        try {
+            await axios.post(`${API_URL}/register`, credentials);
+            return credentials; // Could improve this if you want auto-login after registration
+        } catch (err: any) {
+            return rejectWithValue(err.response?.data || 'Registration failed');
         }
-
-        const newUserData = {
-            id: users.length + 1,
-            name: newUser.name || "New User",
-            email: newUser.email,
-            password: newUser.password,
-            role: "user"
-        };
-
-        users.push(newUserData);
-        saveMockUsers(users);
-
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('user', JSON.stringify(newUserData));
-
-        return await fakeApiCall(newUserData);
-    } catch (err) {
-        return rejectWithValue(err);
     }
-});
-
-export const checkAuthStatus = createAsyncThunk('auth/checkAuthStatus', async (_, {rejectWithValue}) => {
-    try {
-        const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
-        const user = JSON.parse(localStorage.getItem('user'));
-        if (!isAuthenticated || !user) throw new Error("Not authenticated");
-        return user;
-    } catch {
-        return rejectWithValue("User not authenticated");
-    }
-});
+);
 
 export const logoutUser = createAsyncThunk('auth/logoutUser', async () => {
     localStorage.removeItem('isAuthenticated');
     localStorage.removeItem('user');
+    localStorage.removeItem('token');
     return null;
 });
 
@@ -98,7 +50,7 @@ const authSlice = createSlice({
     name: 'auth',
     initialState: {
         isAuthenticated: localStorage.getItem('isAuthenticated') === 'true',
-        user: JSON.parse(localStorage.getItem('user')) || null,
+        user: JSON.parse(localStorage.getItem('user') || 'null'),
         loading: false,
         error: null,
     },
@@ -116,21 +68,19 @@ const authSlice = createSlice({
             })
             .addCase(loginUser.rejected, (state, action) => {
                 state.loading = false;
-                state.error = action.payload;
+                state.error = action.payload as string;
             })
 
             .addCase(registerUser.pending, (state) => {
                 state.loading = true;
                 state.error = null;
             })
-            .addCase(registerUser.fulfilled, (state, action) => {
+            .addCase(registerUser.fulfilled, (state) => {
                 state.loading = false;
-                state.isAuthenticated = true;
-                state.user = action.payload;
             })
             .addCase(registerUser.rejected, (state, action) => {
                 state.loading = false;
-                state.error = action.payload;
+                state.error = action.payload as string;
             })
 
             .addCase(logoutUser.fulfilled, (state) => {
